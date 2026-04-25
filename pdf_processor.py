@@ -3,6 +3,34 @@ import openpyxl
 from openpyxl import Workbook
 
 class PDFProcessor:
+def extract_tables_via_api(self, pdf_path, output_excel):
+    """Использует PDF.co API для идеального распознавания таблиц"""
+    import requests, json, time
+    
+    API_KEY = "t2468600@gmail.com_uDNhV6T9kk9ttSu5Enb22KGFYE9QGBnOGgTau84Vu63uSZKSJg61qHDYfHTyB4W3"  # Вставь сюда из pdf.co
+    url = "https://api.pdf.co/v1/pdf/convert/to/excel"
+    
+    # Загружаем файл
+    with open(pdf_path, 'rb') as f:
+        files = {'file': f}
+        headers = {'x-api-key': API_KEY}
+        response = requests.post(url, files=files, headers=headers)
+    
+    result = response.json()
+    
+    if result.get('error'):
+        return 0
+    
+    # Скачиваем готовый Excel
+    excel_url = result['url']
+    r = requests.get(excel_url)
+    with open(output_excel, 'wb') as f:
+        f.write(r.content)
+    
+    return 1  # API вернул Excel
+
+ 
+ 
  def extract_tables_to_excel(self, pdf_path, output_excel):
     from openpyxl import Workbook
     wb = Workbook()
