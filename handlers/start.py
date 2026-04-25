@@ -54,7 +54,6 @@ def handle_document(chat_id, doc, send_message):
 def handle_text(chat_id, text, send_message, send_document):
     import os
     import tempfile
-    from handlers.pdf_utils import extract_tables_to_excel, find_explications_smart
     
     if chat_id not in user_pdfs:
         send_message(chat_id, "❌ *Сначала отправь PDF файл!*")
