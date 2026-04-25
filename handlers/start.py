@@ -1,4 +1,4 @@
-from handlers.pdf_utils import process_pdf_tables, process_pdf_explications
+from handlers.pdf_utils import extract_tables_to_excel, find_explications_smart
 
 # Хранилище PDF для каждого пользователя (временно)
 user_pdfs = {}
