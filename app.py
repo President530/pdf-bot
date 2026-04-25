@@ -64,12 +64,25 @@ def webhook():
         doc = message['document']
         if doc.get('mime_type') == 'application/pdf':
             send_message(chat_id, "Скачиваю PDF...")
-            file_info = requests.get(URL + f"/getFile?file_id={doc['file_id']}").json()
-            file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info['result']['file_path']}"
+            
+            # Получаем файл
+            file_info_response = requests.get(URL + f"/getFile?file_id={doc['file_id']}").json()
+            
+            # Проверяем, есть ли 'result'
+            if not file_info_response.get('ok') or 'result' not in file_info_response:
+                send_message(chat_id, "Ошибка: не могу получить файл")
+                print(f"Ошибка getFile: {file_info_response}")
+                return 'OK', 200
+            
+            file_path = file_info_response['result']['file_path']
+            file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+            
+            # Скачиваем файл
             r = requests.get(file_url)
             pdf_path = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False).name
             with open(pdf_path, 'wb') as f:
                 f.write(r.content)
+            
             app.config['pdf_path'] = pdf_path
             send_message(chat_id, "PDF принят! Используй /tables или /explication")
     
