@@ -1,5 +1,4 @@
 from handlers.pdf_utils import extract_tables_to_excel, find_explications_smart
-import pdf_utils  # Добавьте эту строку в начало файла
 
 # Хранилище PDF для каждого пользователя (временно)
 user_pdfs = {}
@@ -99,7 +98,7 @@ def handle_text(chat_id, text, send_message, send_document):
     elif text == '🚀 Excel (PRO)':
         send_message(chat_id, "⏳ PRO-обработка... (это может занять минуту)")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-        count = pdf_utils.extract_tables_to_excel_pro(pdf_path, output_excel)
+        count = extract_tables_to_excel_pro(pdf_path, output_excel)  # ← УБРАЛ pdf_utils.
         
         if count == 0:
             send_message(chat_id, "❌ Таблицы не найдены. Попробуйте простой режим.")
@@ -110,3 +109,61 @@ def handle_text(chat_id, text, send_message, send_document):
 def get_keyboard():
     from keyboards.menu import main_menu_keyboard
     return main_menu_keyboard()
+
+# ========== PRO ФУНКЦИЯ (оставьте как есть) ==========
+import pdfplumber
+import re
+from openpyxl import Workbook
+
+def extract_tables_to_excel_pro(pdf_path, output_excel):
+    """PRO версия — как у ilovepdf"""
+    
+    wb = Workbook()
+    wb.remove(wb.active)
+    sheet_count = 0
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            words = page.extract_words(keep_blank_chars=False)
+            if not words:
+                continue
+            
+            # Группируем по строкам
+            rows = {}
+            threshold = 3
+            
+            for w in words:
+                y0 = round(w['y0'] / threshold) * threshold
+                if y0 not in rows:
+                    rows[y0] = []
+                rows[y0].append(w)
+            
+            # Сортируем и разбиваем числа
+            table_rows = []
+            for y in sorted(rows.keys()):
+                row_words = sorted(rows[y], key=lambda x: x['x0'])
+                row_text = [w['text'] for w in row_words]
+                
+                expanded_row = []
+                for cell in row_text:
+                    if re.search(r'\d+\s+\d+', cell):
+                        numbers = re.findall(r'\d+', cell)
+                        expanded_row.extend(numbers)
+                    else:
+                        expanded_row.append(cell)
+                
+                table_rows.append(expanded_row)
+            
+            if len(table_rows) > 2:
+                sheet_count += 1
+                ws = wb.create_sheet(title=f"Страница_{page_num}")
+                for row_idx, row in enumerate(table_rows):
+                    for col_idx, cell in enumerate(row):
+                        if cell:
+                            ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
+    
+    if sheet_count == 0:
+        return extract_tables_to_excel(pdf_path, output_excel)
+    
+    wb.save(output_excel)
+    return sheet_count
