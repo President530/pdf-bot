@@ -1,39 +1,38 @@
 from handlers.pdf_utils import extract_tables_to_excel, find_explications_smart
-import traceback
+import pdfplumber
+import re
+from openpyxl import Workbook
 import os
 import tempfile
 
-print("🔧 DEBUG: handlers/start.py loading...")
-
-# Хранилище PDF для каждого пользователя (временно)
+# Хранилище PDF для каждого пользователя
 user_pdfs = {}
 
 def start_command(chat_id, send_message, get_keyboard):
     send_message(
         chat_id, 
-        "🤖 *Здрасте, прывет от ВА*\n\n"
-        "📌 *Что я умею:*\n"
-        "• 📊 Извлекать таблицы из PDF в Excel\n"
-        "• 📐 Находить экспликации помещений\n\n"
-        "🚀 *Как работать:*\n"
-        "1. Отправь мне PDF файл\n"
-        "2. Нажми нужную кнопку в меню\n\n"
-        "🆓 Бесплатно, без ограничений!",
+        "🤖 *Бот для извлечения таблиц из PDF*\n\n"
+        "📌 *Что умею:*\n"
+        "• 📊 Извлекать таблицы в Excel\n"
+        "• 📐 Находить экспликации помещений\n"
+        "• 🚀 PRO-режим с разбивкой чисел\n\n"
+        "⚠️ *Ограничения:*\n"
+        "• Файлы до 2 МБ - быстро\n"
+        "• Файлы 2-5 МБ - медленно\n"
+        "• Файлы >5 МБ - используйте стандартный режим\n\n"
+        "📌 *Как работать:*\n"
+        "1. Отправьте PDF\n"
+        "2. Выберите режим",
         get_keyboard()
     )
 
 def handle_document(chat_id, doc, send_message):
-    """Сохраняет PDF и сообщает пользователю"""
     import requests
-    import tempfile
     from app import URL, TOKEN
     
-    send_message(chat_id, "📥 *Шаг 1/4: Скачиваю PDF...*")
+    send_message(chat_id, "📥 Скачиваю PDF...")
     
-    # Получаем файл
-    send_message(chat_id, "📊 Получаю информацию о файле...")
     file_info = requests.get(URL + f"/getFile?file_id={doc['file_id']}").json()
-    
     if not file_info.get('ok'):
         send_message(chat_id, "❌ Ошибка получения файла")
         return
@@ -41,268 +40,176 @@ def handle_document(chat_id, doc, send_message):
     file_path = file_info['result']['file_path']
     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
     
-    # Скачиваем
-    send_message(chat_id, "📥 Скачиваю содержимое...")
-    r = requests.get(file_url)
+    file_data = requests.get(file_url)
+    
+    # Проверяем размер перед сохранением
+    file_size_mb = len(file_data.content) / (1024 * 1024)
+    
     temp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    temp_pdf.write(r.content)
+    temp_pdf.write(file_data.content)
     temp_pdf.close()
     
-    # Сохраняем путь
-    user_pdfs[chat_id] = temp_pdf.name
-    file_size = os.path.getsize(temp_pdf.name) / 1024  # в КБ
+    user_pdfs[chat_id] = {
+        'path': temp_pdf.name,
+        'size_mb': file_size_mb
+    }
+    
+    warning = ""
+    if file_size_mb > 3:
+        warning = f"\n\n⚠️ Файл {file_size_mb:.1f} МБ! Рекомендую стандартный режим."
     
     send_message(
         chat_id, 
-        f"✅ *PDF принят!*\n\n"
-        f"📄 Имя: {doc.get('file_name', 'без имени')}\n"
-        f"📦 Размер: {file_size:.1f} КБ\n"
-        f"🔗 Путь: {temp_pdf.name}\n\n"
-        f"📌 Теперь выбери действие в меню:",
+        f"✅ PDF принят! {file_size_mb:.1f} МБ{warning}\n\n📌 Выберите действие в меню:",
         get_keyboard()
     )
 
 def handle_text(chat_id, text, send_message, send_document):
-    import os
-    import tempfile
-    import time
-    
-    # Отправляем начальное сообщение
-    send_message(chat_id, f"🔍 *Обработка команды:* {text}")
-    
-    # Проверка наличия PDF
     if chat_id not in user_pdfs:
-        send_message(chat_id, "❌ *Сначала отправь PDF файл!*")
+        send_message(chat_id, "❌ Сначала отправьте PDF файл!")
         return
     
-    pdf_path = user_pdfs[chat_id]
-    send_message(chat_id, f"✅ PDF найден: {os.path.basename(pdf_path)}")
+    pdf_info = user_pdfs[chat_id]
+    pdf_path = pdf_info['path']
+    file_size_mb = pdf_info['size_mb']
     
-    # Стандартный режим
     if text == '📊 Таблицы в Excel' or text == '/tables':
-        send_message(chat_id, "⏳ *Запускаю стандартный режим...*")
-        
+        send_message(chat_id, "⏳ Извлекаю таблицы...")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-        send_message(chat_id, "📊 Извлекаю таблицы (это может занять 5-10 секунд)...")
-        
-        start_time = time.time()
         count = extract_tables_to_excel(pdf_path, output_excel)
-        elapsed = time.time() - start_time
-        
-        send_message(chat_id, f"⏱ Время обработки: {elapsed:.1f} сек")
         
         if count == 0:
-            send_message(chat_id, "❌ *Таблицы не найдены* в этом PDF.")
+            send_message(chat_id, "❌ Таблицы не найдены")
         else:
-            send_message(chat_id, f"✅ Найдено {count} таблиц, создаю Excel файл...")
             send_document(chat_id, output_excel, f"tables_{count}.xlsx")
             os.unlink(output_excel)
-            send_message(chat_id, "✅ Готово!")
     
-    # Режим экспликаций
     elif text == '📐 Экспликации' or text == '/explication':
-        send_message(chat_id, "🔍 *Запускаю поиск экспликаций...*")
-        
-        start_time = time.time()
+        send_message(chat_id, "🔍 Ищу экспликации...")
         result = find_explications_smart(pdf_path)
-        elapsed = time.time() - start_time
-        
-        send_message(chat_id, f"⏱ Время обработки: {elapsed:.1f} сек")
         
         if not result:
-            send_message(chat_id, "❌ *Экспликации не найдены* в этом PDF.\n\n"
-                                  "💡 Совет: убедись что в файле есть таблица с номерами, названиями и площадями комнат.")
+            send_message(chat_id, "❌ Экспликации не найдены")
         else:
-            msg = f"🔍 *Найдено {len(result)} таблиц с экспликациями:*\n\n"
+            msg = f"🔍 Найдено {len(result)} таблиц:\n\n"
             for r in result:
-                msg += f"📄 *Страница {r['page']}* — {r['rows_count']} строк\n"
-                # Показываем пример первой строки
-                if r['table'] and len(r['table']) > 0:
-                    first_row = r['table'][0]
-                    msg += f"   Пример: {' | '.join([str(c)[:15] for c in first_row if c])}\n"
-                msg += "\n"
-            
-            if len(msg) > 4000:
-                msg = msg[:4000] + "\n\n...(обрезано)"
-            
-            send_message(chat_id, msg)
-            send_message(chat_id, "💡 Чтобы получить полный Excel с экспликациями, используй режим 'Таблицы в Excel'")
+                msg += f"📄 Страница {r['page']} — {r['rows_count']} строк\n"
+            send_message(chat_id, msg[:4000])
     
-    # PRO режим (подробная отладка)
     elif text == '🚀 Excel (PRO)':
-        send_message(chat_id, "🚀 *ЗАПУСК PRO РЕЖИМА С ОТЛАДКОЙ*\n")
-        
-        # Шаг 1: Проверка файла
-        send_message(chat_id, "📋 **ШАГ 1/6: Проверка файла**")
-        if not os.path.exists(pdf_path):
-            send_message(chat_id, f"❌ Файл НЕ НАЙДЕН: {pdf_path}")
+        # Проверка размера файла
+        if file_size_mb > 5:
+            send_message(chat_id, f"❌ Файл {file_size_mb:.1f} МБ слишком большой для PRO-режима.\n\nИспользуйте стандартный режим 'Таблицы в Excel' или уменьшите PDF.")
             return
-        file_size = os.path.getsize(pdf_path)
-        send_message(chat_id, f"✅ Файл найден\n📦 Размер: {file_size} байт ({file_size/1024:.1f} КБ)")
         
-        # Шаг 2: Проверка функции
-        send_message(chat_id, "\n📋 **ШАГ 2/6: Проверка PRO-функции**")
-        if 'extract_tables_to_excel_pro' not in globals():
-            send_message(chat_id, "❌ PRO-функция не определена в глобальной области!")
-            send_message(chat_id, "🔍 Доступные функции: " + ", ".join([k for k in globals().keys() if not k.startswith('_')])[:200])
-            return
-        send_message(chat_id, "✅ PRO-функция найдена")
+        if file_size_mb > 2:
+            send_message(chat_id, f"⚠️ Файл {file_size_mb:.1f} МБ. Обработка может занять 1-2 минуты...")
         
-        # Шаг 3: Подготовка выходного файла
-        send_message(chat_id, "\n📋 **ШАГ 3/6: Создание временного файла**")
+        send_message(chat_id, "⏳ PRO-обработка (постранично, экономно)...")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-        send_message(chat_id, f"✅ Временный файл: {os.path.basename(output_excel)}")
         
-        # Шаг 4: Запуск обработки
-        send_message(chat_id, "\n📋 **ШАГ 4/6: Запуск обработки PDF**")
-        send_message(chat_id, "⏳ Это может занять 10-30 секунд, пожалуйста, подождите...")
+        # Вызываем экономичную PRO-функцию
+        count = extract_tables_to_excel_pro_economic(pdf_path, output_excel, send_message, chat_id)
         
-        start_time = time.time()
-        try:
-            count = extract_tables_to_excel_pro(pdf_path, output_excel)
-            elapsed = time.time() - start_time
-            
-            send_message(chat_id, f"\n📋 **ШАГ 5/6: Результат обработки**")
-            send_message(chat_id, f"⏱ Время: {elapsed:.1f} секунд")
-            send_message(chat_id, f"📊 Найдено таблиц: {count}")
-            
-            if count == 0:
-                send_message(chat_id, "❌ Таблицы не найдены. Попробуйте стандартный режим.")
-                os.unlink(output_excel)
-            else:
-                send_message(chat_id, f"\n📋 **ШАГ 6/6: Отправка файла**")
-                send_message(chat_id, f"✅ Создаю Excel с {count} таблиц(ами)...")
-                
-                # Проверяем размер выходного файла
-                if os.path.exists(output_excel):
-                    out_size = os.path.getsize(output_excel) / 1024
-                    send_message(chat_id, f"📦 Размер Excel: {out_size:.1f} КБ")
-                
-                send_document(chat_id, output_excel, f"pro_tables_{count}_{int(elapsed)}sec.xlsx")
-                os.unlink(output_excel)
-                send_message(chat_id, "✅ *ГОТОВО!* PRO-обработка успешно завершена.")
-                
-        except Exception as e:
-            elapsed = time.time() - start_time
-            send_message(chat_id, f"\n❌ **ОШИБКА на шаге 4** (через {elapsed:.1f} сек)")
-            send_message(chat_id, f"Тип ошибки: {type(e).__name__}")
-            send_message(chat_id, f"Сообщение: {str(e)[:300]}")
-            
-            # Отправляем traceback в лог (но не в Telegram, чтобы не заспамить)
-            error_details = traceback.format_exc()
-            print(f"PRO ERROR DETAILS:\n{error_details}")
-            send_message(chat_id, "\n🔍 Подробности ошибки отправлены в лог сервера.")
-            send_message(chat_id, "💡 Попробуйте стандартный режим 'Таблицы в Excel'")
+        if count == 0:
+            send_message(chat_id, "❌ Таблицы не найдены. Попробуйте стандартный режим.")
+        else:
+            send_document(chat_id, output_excel, f"pro_tables_{count}.xlsx")
+            os.unlink(output_excel)
+            send_message(chat_id, "✅ Готово!")
 
 def get_keyboard():
     from keyboards.menu import main_menu_keyboard
     return main_menu_keyboard()
 
-# ========== PRO ФУНКЦИЯ (улучшенная) ==========
-import pdfplumber
-import re
-from openpyxl import Workbook
-
-def extract_tables_to_excel_pro(pdf_path, output_excel):
-    """Экономичная PRO версия (без extract_words на больших PDF)"""
+# ========== ЭКОНОМИЧНАЯ PRO-ФУНКЦИЯ (для больших файлов) ==========
+def extract_tables_to_excel_pro_economic(pdf_path, output_excel, send_message=None, chat_id=None):
+    """Постраничная обработка с экономией памяти"""
+    
     wb = Workbook()
     wb.remove(wb.active)
     sheet_count = 0
     
     try:
+        # Открываем PDF
         with pdfplumber.open(pdf_path) as pdf:
-            # Ограничиваем количество страниц для бесплатного тарифа
-            max_pages = min(len(pdf.pages), 15)
+            total_pages = len(pdf.pages)
             
-            for page_num in range(max_pages):
+            if send_message and chat_id:
+                send_message(chat_id, f"📄 Всего страниц: {total_pages}")
+            
+            # Обрабатываем каждую страницу отдельно
+            for page_num in range(total_pages):
+                if send_message and chat_id and page_num % 3 == 0:
+                    send_message(chat_id, f"📄 Обработка страницы {page_num+1}/{total_pages}...")
+                
                 page = pdf.pages[page_num]
                 
-                # Метод 1: Пробуем extract_tables (самый быстрый и экономный)
+                # Только extract_tables (самый экономный)
                 tables = page.extract_tables()
-                found_tables = False
                 
-                for table in tables:
-                    if table and len(table) >= 2:
-                        # Очищаем и обрабатываем таблицу
-                        processed_rows = []
-                        for row_idx, row in enumerate(table[:50]):  # Ограничиваем строки
-                            if not row or not any(cell for cell in row):
-                                continue
-                            
-                            new_row = []
-                            for cell in row:
-                                if cell and isinstance(cell, str):
-                                    cell_clean = cell.strip()
-                                    # Разбиваем только явные склеенные числа
-                                    if re.search(r'\d+\s+\d+', cell_clean):
-                                        parts = cell_clean.split()
-                                        # Разбиваем только если части выглядят как числа
-                                        if all(p.isdigit() for p in parts):
-                                            new_row.extend(parts)
-                                            continue
-                                    new_row.append(cell_clean)
-                                elif cell:
-                                    new_row.append(str(cell))
+                for table_idx, table in enumerate(tables):
+                    if not table or len(table) < 2:
+                        continue
+                    
+                    # Обрабатываем строки таблицы
+                    processed_rows = []
+                    for row in table:
+                        if not row or not any(cell for cell in row):
+                            continue
+                        
+                        new_row = []
+                        for cell in row:
+                            if cell and isinstance(cell, str):
+                                cell_clean = cell.strip()
+                                # Разбиваем числа
+                                if re.match(r'^[\d\s]+$', cell_clean) and ' ' in cell_clean:
+                                    parts = cell_clean.split()
+                                    new_row.extend(parts)
                                 else:
-                                    new_row.append('')
-                            
-                            if new_row and any(new_row):
-                                processed_rows.append(new_row)
+                                    new_row.append(cell_clean)
+                            elif cell:
+                                new_row.append(str(cell))
+                            else:
+                                new_row.append('')
                         
-                        if len(processed_rows) >= 2:
-                            found_tables = True
-                            sheet_count += 1
-                            ws = wb.create_sheet(title=f"Page_{page_num+1}_{sheet_count}")
-                            
-                            # Записываем только первые 100 строк для экономии памяти
-                            for i, row in enumerate(processed_rows[:100]):
-                                for j, val in enumerate(row[:20]):  # Ограничиваем колонки
-                                    if val:
-                                        ws.cell(row=i+1, column=j+1, value=val)
-                
-                # Метод 2: Если таблиц нет, пробуем просто текст (но экономно)
-                if not found_tables:
-                    text = page.extract_text()
-                    if text:
-                        lines = text.split('\n')
-                        data_rows = []
-                        for line in lines[:100]:  # Ограничиваем строки
-                            if line.strip() and any(c.isdigit() for c in line):
-                                cells = line.split()
-                                if len(cells) >= 3:  # Минимум 3 колонки
-                                    data_rows.append(cells)
+                        if new_row and any(new_row):
+                            processed_rows.append(new_row)
+                    
+                    if len(processed_rows) >= 2:
+                        sheet_count += 1
+                        ws = wb.create_sheet(title=f"Page_{page_num+1}_{table_idx+1}")
                         
-                        if len(data_rows) >= 3:
-                            sheet_count += 1
-                            ws = wb.create_sheet(title=f"Page_{page_num+1}_text")
-                            for i, row in enumerate(data_rows[:50]):
-                                for j, val in enumerate(row[:15]):
-                                    if val:
+                        # Записываем строки (ограничиваем для памяти)
+                        for i, row in enumerate(processed_rows[:100]):
+                            for j, val in enumerate(row[:15]):
+                                if val:
+                                    try:
                                         ws.cell(row=i+1, column=j+1, value=val)
+                                    except:
+                                        pass
                 
-                # Принудительно очищаем память после каждой страницы
+                # Очищаем страницу из памяти
                 del page
                 
-            # Очищаем память от PDF
+                # Каждые 3 страницы напоминаем GC
+                if page_num % 3 == 0:
+                    import gc
+                    gc.collect()
+            
             pdf.close()
     
     except Exception as e:
-        print(f"PRO ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return extract_tables_to_excel(pdf_path, output_excel)
+        print(f"PRO ECONOMIC ERROR: {e}")
+        return 0
     
     if sheet_count == 0:
-        print("No tables found, falling back to standard method")
+        # Пробуем стандартный метод
         return extract_tables_to_excel(pdf_path, output_excel)
     
     try:
         wb.save(output_excel)
-    except Exception as e:
-        print(f"Save error: {e}")
+    except:
         return 0
     
     return sheet_count
-
-print("✅ handlers/start.py успешно загружен")
-print(f"✅ extract_tables_to_excel_pro определена: {extract_tables_to_excel_pro is not None}")
