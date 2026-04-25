@@ -6,9 +6,9 @@ user_pdfs = {}
 def start_command(chat_id, send_message, get_keyboard):
     send_message(
         chat_id, 
-        "🤖 *Привет! Я твой PDF помощник*\n\n"
+        "🤖 *Здрасте, прывет от ВА*\n\n"
         "📌 *Что я умею:*\n"
-        "• 📊 Извлекать таблицы из PDF в Excel\n"
+        "• 📊 Уже извлекать таблицы из PDF в Excel\n"
         "• 📐 Находить экспликации помещений\n\n"
         "🚀 *Как работать:*\n"
         "1. Отправь мне PDF файл\n"
@@ -95,6 +95,17 @@ def handle_text(chat_id, text, send_message, send_document):
                 msg = msg[:4000] + "\n\n...(обрезано)"
             
             send_message(chat_id, msg)
+
+elif text == '🚀 Excel (PRO)':
+    send_message(chat_id, "⏳ PRO-обработка... (это может занять минуту)")
+    output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
+    count = pdf_utils.extract_tables_to_excel_pro(pdf_path, output_excel)
+    
+    if count == 0:
+        send_message(chat_id, "❌ Таблицы не найдены. Попробуйте простой режим.")
+    else:
+        send_document(chat_id, output_excel, f"pro_tables_{count}.xlsx")
+        os.unlink(output_excel)
 
 def get_keyboard():
     from keyboards.menu import main_menu_keyboard
