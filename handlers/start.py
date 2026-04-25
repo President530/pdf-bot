@@ -8,7 +8,7 @@ def start_command(chat_id, send_message, get_keyboard):
         chat_id, 
         "🤖 *Здрасте, прывет от ВА*\n\n"
         "📌 *Что я умею:*\n"
-        "• 📊 Уже извлекать таблицы из PDF в Excel\n"
+        "• 📊 Извлекать таблицы из PDF в Excel\n"
         "• 📐 Находить экспликации помещений\n\n"
         "🚀 *Как работать:*\n"
         "1. Отправь мне PDF файл\n"
@@ -25,7 +25,6 @@ def handle_document(chat_id, doc, send_message):
     
     send_message(chat_id, "📥 *Скачиваю PDF...*")
     
-    # Получаем файл
     file_info = requests.get(URL + f"/getFile?file_id={doc['file_id']}").json()
     
     if not file_info.get('ok'):
@@ -35,21 +34,14 @@ def handle_document(chat_id, doc, send_message):
     file_path = file_info['result']['file_path']
     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
     
-    # Скачиваем
     r = requests.get(file_url)
     temp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     temp_pdf.write(r.content)
     temp_pdf.close()
     
-    # Сохраняем путь
     user_pdfs[chat_id] = temp_pdf.name
     
-    send_message(
-        chat_id, 
-        "✅ *PDF принят!*\n\n"
-        "📌 Теперь выбери действие в меню:",
-        get_keyboard()
-    )
+    send_message(chat_id, "✅ *PDF принят!*\n\n📌 Теперь выбери действие в меню:", get_keyboard())
 
 def handle_text(chat_id, text, send_message, send_document):
     import os
@@ -63,7 +55,6 @@ def handle_text(chat_id, text, send_message, send_document):
     
     if text == '📊 Таблицы в Excel' or text == '/tables':
         send_message(chat_id, "⏳ *Извлекаю таблицы...*")
-        
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
         count = extract_tables_to_excel(pdf_path, output_excel)
         
@@ -75,33 +66,23 @@ def handle_text(chat_id, text, send_message, send_document):
     
     elif text == '📐 Экспликации' or text == '/explication':
         send_message(chat_id, "🔍 *Ищу экспликации помещений...*")
-        
         result = find_explications_smart(pdf_path)
         
         if not result:
-            send_message(chat_id, "❌ *Экспликации не найдены* в этом PDF.\n\n"
-                                  "📌 *Совет:* убедись что в файле есть таблица с номерами, названиями и площадями комнат.")
+            send_message(chat_id, "❌ *Экспликации не найдены*")
         else:
-            msg = f"🔍 *Найдено {len(result)} таблиц с экспликациями:*\n\n"
+            msg = f"🔍 *Найдено {len(result)} таблиц:*\n\n"
             for r in result:
                 msg += f"📄 *Страница {r['page']}* — {r['rows_count']} строк\n"
-                for row in r['table'][:5]:
-                    if any(row):
-                        msg += f"  • {' | '.join([str(c)[:20] for c in row if c])}\n"
-                msg += "\n"
-            
-            if len(msg) > 4000:
-                msg = msg[:4000] + "\n\n...(обрезано)"
-            
-            send_message(chat_id, msg)
+            send_message(chat_id, msg[:4000])
     
     elif text == '🚀 Excel (PRO)':
-        send_message(chat_id, "⏳ PRO-обработка... (это может занять минуту)")
+        send_message(chat_id, "⏳ PRO-обработка...")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-        count = extract_tables_to_excel_pro(pdf_path, output_excel)  # ← УБРАЛ pdf_utils.
+        count = extract_tables_to_excel_pro(pdf_path, output_excel)
         
         if count == 0:
-            send_message(chat_id, "❌ Таблицы не найдены. Попробуйте простой режим.")
+            send_message(chat_id, "❌ Таблицы не найдены")
         else:
             send_document(chat_id, output_excel, f"pro_tables_{count}.xlsx")
             os.unlink(output_excel)
@@ -110,14 +91,12 @@ def get_keyboard():
     from keyboards.menu import main_menu_keyboard
     return main_menu_keyboard()
 
-# ========== PRO ФУНКЦИЯ (оставьте как есть) ==========
+# PRO функция
 import pdfplumber
 import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel_pro(pdf_path, output_excel):
-    """PRO версия — как у ilovepdf"""
-    
     wb = Workbook()
     wb.remove(wb.active)
     sheet_count = 0
@@ -128,7 +107,6 @@ def extract_tables_to_excel_pro(pdf_path, output_excel):
             if not words:
                 continue
             
-            # Группируем по строкам
             rows = {}
             threshold = 3
             
@@ -138,7 +116,6 @@ def extract_tables_to_excel_pro(pdf_path, output_excel):
                     rows[y0] = []
                 rows[y0].append(w)
             
-            # Сортируем и разбиваем числа
             table_rows = []
             for y in sorted(rows.keys()):
                 row_words = sorted(rows[y], key=lambda x: x['x0'])
@@ -147,11 +124,9 @@ def extract_tables_to_excel_pro(pdf_path, output_excel):
                 expanded_row = []
                 for cell in row_text:
                     if re.search(r'\d+\s+\d+', cell):
-                        numbers = re.findall(r'\d+', cell)
-                        expanded_row.extend(numbers)
+                        expanded_row.extend(re.findall(r'\d+', cell))
                     else:
                         expanded_row.append(cell)
-                
                 table_rows.append(expanded_row)
             
             if len(table_rows) > 2:
