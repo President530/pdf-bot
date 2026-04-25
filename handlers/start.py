@@ -204,7 +204,7 @@ import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel_pro(pdf_path, output_excel):
-    """PRO версия с подробным логированием в консоль"""
+    """PRO версия с исправленными координатами"""
     print(f"\n=== PRO FUNCTION START ===")
     print(f"PDF Path: {pdf_path}")
     
@@ -220,20 +220,42 @@ def extract_tables_to_excel_pro(pdf_path, output_excel):
             for page_num, page in enumerate(pdf.pages, start=1):
                 print(f"\n--- Processing page {page_num} ---")
                 
-                # Метод 1: extract_words
-                words = page.extract_words(keep_blank_chars=False)
+                # Исправлено: используем extract_words с правильными координатами
+                words = page.extract_words(
+                    keep_blank_chars=False,
+                    use_text_flow=True  # Лучшая группировка
+                )
                 print(f"Words found: {len(words)}")
                 
                 if not words:
-                    print(f"No words on page {page_num}, skipping")
+                    print(f"No words on page {page_num}, trying extract_text...")
+                    # Fallback: просто извлекаем текст
+                    text = page.extract_text()
+                    if text:
+                        lines = text.split('\n')
+                        table_rows = [line.split() for line in lines if line.strip()]
+                        if len(table_rows) > 2:
+                            sheet_count += 1
+                            ws = wb.create_sheet(title=f"Страница_{page_num}_текст")
+                            for row_idx, row in enumerate(table_rows):
+                                for col_idx, cell in enumerate(row):
+                                    if cell:
+                                        ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
+                            print(f"  Added sheet from text with {len(table_rows)} rows")
                     continue
                 
-                # Группировка по строкам
+                # Группировка по строкам (используем 'top' вместо 'y0')
                 rows = {}
-                threshold = 3
+                threshold = 5  # Увеличил порог для лучшей группировки
                 
                 for w in words:
-                    y0 = round(w['y0'] / threshold) * threshold
+                    # В pdfplumber координаты: 'top', 'bottom', 'x0', 'x1'
+                    y_pos = w.get('top') or w.get('y0') or w.get('y')
+                    if y_pos is None:
+                        print(f"  Warning: word has no position data: {w}")
+                        continue
+                    
+                    y0 = round(y_pos / threshold) * threshold
                     if y0 not in rows:
                         rows[y0] = []
                     rows[y0].append(w)
@@ -243,24 +265,25 @@ def extract_tables_to_excel_pro(pdf_path, output_excel):
                 # Формирование таблицы
                 table_rows = []
                 for y in sorted(rows.keys()):
-                    row_words = sorted(rows[y], key=lambda x: x['x0'])
-                    row_text = [w['text'] for w in row_words]
+                    row_words = sorted(rows[y], key=lambda x: x.get('x0', x.get('x', 0)))
+                    row_text = [w.get('text', '') for w in row_words]
                     
                     # Разбиваем склеенные числа
                     expanded_row = []
                     for cell in row_text:
-                        if re.search(r'\d+\s+\d+', cell):
+                        if cell and re.search(r'\d+\s+\d+', cell):
                             numbers = re.findall(r'\d+', cell)
                             expanded_row.extend(numbers)
                             print(f"  Split cell: '{cell}' -> {numbers}")
                         else:
-                            expanded_row.append(cell)
+                            expanded_row.append(cell if cell else '')
                     
-                    table_rows.append(expanded_row)
+                    if expanded_row:  # Добавляем только непустые строки
+                        table_rows.append(expanded_row)
                 
                 print(f"Table rows formed: {len(table_rows)}")
                 
-                if len(table_rows) > 2:
+                if len(table_rows) > 1:  # Уменьшил порог с 2 до 1
                     sheet_count += 1
                     ws = wb.create_sheet(title=f"Страница_{page_num}")
                     for row_idx, row in enumerate(table_rows):
