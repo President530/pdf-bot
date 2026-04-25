@@ -3,7 +3,32 @@ import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel(pdf_path, output_excel):
-    """Извлекает таблицы из PDF в Excel"""
+    """Извлекает таблицы из PDF в Excel (3 метода)"""
+    
+    # МЕТОД 1: Camelot (лучший для таблиц с границами)
+    try:
+        import camelot
+        tables = camelot.read_pdf(pdf_path, pages='all', flavor='lattice')
+        
+        if len(tables) > 0:
+            wb = Workbook()
+            wb.remove(wb.active)
+            
+            for i, table in enumerate(tables):
+                sheet_name = f"Camelot_{i+1}"[:31]
+                ws = wb.create_sheet(title=sheet_name)
+                df = table.df
+                for r_idx, row in df.iterrows():
+                    for c_idx, val in enumerate(row):
+                        if val:
+                            ws.cell(row=r_idx+1, column=c_idx+1, value=str(val))
+            
+            wb.save(output_excel)
+            return len(tables)
+    except:
+        pass
+    
+    # МЕТОД 2: pdfplumber (стандартный)
     wb = Workbook()
     if 'Sheet' in wb.sheetnames:
         wb.remove(wb.active)
@@ -12,30 +37,46 @@ def extract_tables_to_excel(pdf_path, output_excel):
     
     with pdfplumber.open(pdf_path) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
+            # Пробуем найти таблицы
             tables = page.extract_tables()
+            
             for table_idx, table in enumerate(tables):
                 if table and len(table) > 1:
-                    table_count += 1
-                    sheet_name = f"Page{page_num}_T{table_idx+1}"[:31]
-                    ws = wb.create_sheet(title=sheet_name)
+                    # Очищаем таблицу от пустых строк
+                    cleaned_table = []
+                    for row in table:
+                        if row and any(cell for cell in row if cell and str(cell).strip()):
+                            cleaned_row = [str(cell).strip() if cell else '' for cell in row]
+                            cleaned_table.append(cleaned_row)
                     
-                    for row_idx, row in enumerate(table):
-                        for col_idx, cell in enumerate(row):
-                            if cell:
-                                ws.cell(row=row_idx+1, column=col_idx+1, value=str(cell))
+                    if len(cleaned_table) > 1:
+                        table_count += 1
+                        sheet_name = f"Page{page_num}_T{table_idx+1}"[:31]
+                        ws = wb.create_sheet(title=sheet_name)
+                        
+                        for row_idx, row in enumerate(cleaned_table):
+                            for col_idx, cell in enumerate(row):
+                                if cell:
+                                    ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
     
-    if table_count > 0:
-        wb.save(output_excel)
-    else:
-        # Если таблиц нет — сохраняем весь текст
+    # МЕТОД 3: если ничего не нашли — сохраняем как текст
+    if table_count == 0:
         full_text = ''
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
-                full_text += page.extract_text() or ''
-        wb.create_sheet(title='Raw Text')
-        ws = wb.active
-        for i, line in enumerate(full_text.split('\n')):
-            ws.cell(row=i+1, column=1, value=line[:32767])
+                text = page.extract_text()
+                if text:
+                    full_text += f"\n--- Page {page.page_number} ---\n" + text
+        
+        if full_text.strip():
+            ws = wb.create_sheet(title='Raw Text')
+            for i, line in enumerate(full_text.split('\n')):
+                if line.strip():
+                    ws.cell(row=i+1, column=1, value=line[:32767])
+            wb.save(output_excel)
+            return 0
+    
+    if table_count > 0:
         wb.save(output_excel)
     
     return table_count
