@@ -1,4 +1,5 @@
 from handlers.pdf_utils import extract_tables_to_excel, find_explications_smart
+import pdf_utils  # Добавьте эту строку в начало файла
 
 # Хранилище PDF для каждого пользователя (временно)
 user_pdfs = {}
@@ -85,7 +86,6 @@ def handle_text(chat_id, text, send_message, send_document):
             msg = f"🔍 *Найдено {len(result)} таблиц с экспликациями:*\n\n"
             for r in result:
                 msg += f"📄 *Страница {r['page']}* — {r['rows_count']} строк\n"
-                # Показываем первые 5 строк
                 for row in r['table'][:5]:
                     if any(row):
                         msg += f"  • {' | '.join([str(c)[:20] for c in row if c])}\n"
@@ -95,17 +95,17 @@ def handle_text(chat_id, text, send_message, send_document):
                 msg = msg[:4000] + "\n\n...(обрезано)"
             
             send_message(chat_id, msg)
-
-elif text == '🚀 Excel (PRO)':
-    send_message(chat_id, "⏳ PRO-обработка... (это может занять минуту)")
-    output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-    count = pdf_utils.extract_tables_to_excel_pro(pdf_path, output_excel)
     
-    if count == 0:
-        send_message(chat_id, "❌ Таблицы не найдены. Попробуйте простой режим.")
-    else:
-        send_document(chat_id, output_excel, f"pro_tables_{count}.xlsx")
-        os.unlink(output_excel)
+    elif text == '🚀 Excel (PRO)':
+        send_message(chat_id, "⏳ PRO-обработка... (это может занять минуту)")
+        output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
+        count = pdf_utils.extract_tables_to_excel_pro(pdf_path, output_excel)
+        
+        if count == 0:
+            send_message(chat_id, "❌ Таблицы не найдены. Попробуйте простой режим.")
+        else:
+            send_document(chat_id, output_excel, f"pro_tables_{count}.xlsx")
+            os.unlink(output_excel)
 
 def get_keyboard():
     from keyboards.menu import main_menu_keyboard
