@@ -3,26 +3,39 @@ import openpyxl
 from openpyxl import Workbook
 
 class PDFProcessor:
-    def extract_tables_to_excel(self, pdf_path, output_excel):
-        wb = Workbook()
+ def extract_tables_to_excel(self, pdf_path, output_excel):
+    from openpyxl import Workbook
+    wb = Workbook()
+    # Удаляем дефолтный пустой лист
+    if 'Sheet' in wb.sheetnames:
         wb.remove(wb.active)
-        table_count = 0
-        
-        with pdfplumber.open(pdf_path) as pdf:
-            for page_num, page in enumerate(pdf.pages, start=1):
-                tables = page.extract_tables()
-                for table_idx, table in enumerate(tables):
-                    if table and len(table) > 1:
-                        table_count += 1
-                        ws = wb.create_sheet(title=f"Page{page_num}_T{table_idx+1}")
-                        
-                        for row_idx, row in enumerate(table):
-                            for col_idx, cell in enumerate(row):
-                                if cell:
-                                    ws.cell(row=row_idx+1, column=col_idx+1, value=str(cell))
-        
+    
+    table_count = 0
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            tables = page.extract_tables()
+            for table_idx, table in enumerate(tables):
+                if table and len(table) > 1:
+                    table_count += 1
+                    sheet_name = f"Page{page_num}_T{table_idx+1}"[:31]
+                    ws = wb.create_sheet(title=sheet_name)
+                    
+                    for row_idx, row in enumerate(table):
+                        for col_idx, cell in enumerate(row):
+                            if cell:
+                                ws.cell(row=row_idx+1, column=col_idx+1, value=str(cell))
+    
+    # Если нашли таблицы - сохраняем
+    if table_count > 0:
         wb.save(output_excel)
-        return table_count
+    else:
+        # Если таблиц нет - создаём пустой файл с одним листом
+        wb2 = Workbook()
+        wb2.active.title = "No tables found"
+        wb2.save(output_excel)
+    
+    return table_count
     
     def find_explications(self, pdf_path):
         explications = []
