@@ -6,7 +6,7 @@ import threading
 from flask import Flask, request, jsonify
 from pdf_processor import PDFProcessor
 
-TOKEN = "ТВОЙ_ТОКЕН"  # ВСТАВЬ ТОКЕН БОТА
+TOKEN = "8651917334:AAFU4aXbCzqaa72cMwCH04BXPaeSc1C7pLM"  # ВСТАВЬ ТОКЕН БОТА
 URL = "https://api.telegram.org/bot" + TOKEN
 
 app = Flask(__name__)
