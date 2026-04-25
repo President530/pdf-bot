@@ -204,110 +204,105 @@ import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel_pro(pdf_path, output_excel):
-    """PRO версия с исправленными координатами"""
-    print(f"\n=== PRO FUNCTION START ===")
-    print(f"PDF Path: {pdf_path}")
-    
+    """Экономичная PRO версия (без extract_words на больших PDF)"""
     wb = Workbook()
     wb.remove(wb.active)
     sheet_count = 0
     
     try:
-        print("Opening PDF...")
         with pdfplumber.open(pdf_path) as pdf:
-            print(f"PDF opened, pages: {len(pdf.pages)}")
+            # Ограничиваем количество страниц для бесплатного тарифа
+            max_pages = min(len(pdf.pages), 15)
             
-            for page_num, page in enumerate(pdf.pages, start=1):
-                print(f"\n--- Processing page {page_num} ---")
+            for page_num in range(max_pages):
+                page = pdf.pages[page_num]
                 
-                # Исправлено: используем extract_words с правильными координатами
-                words = page.extract_words(
-                    keep_blank_chars=False,
-                    use_text_flow=True  # Лучшая группировка
-                )
-                print(f"Words found: {len(words)}")
+                # Метод 1: Пробуем extract_tables (самый быстрый и экономный)
+                tables = page.extract_tables()
+                found_tables = False
                 
-                if not words:
-                    print(f"No words on page {page_num}, trying extract_text...")
-                    # Fallback: просто извлекаем текст
+                for table in tables:
+                    if table and len(table) >= 2:
+                        # Очищаем и обрабатываем таблицу
+                        processed_rows = []
+                        for row_idx, row in enumerate(table[:50]):  # Ограничиваем строки
+                            if not row or not any(cell for cell in row):
+                                continue
+                            
+                            new_row = []
+                            for cell in row:
+                                if cell and isinstance(cell, str):
+                                    cell_clean = cell.strip()
+                                    # Разбиваем только явные склеенные числа
+                                    if re.search(r'\d+\s+\d+', cell_clean):
+                                        parts = cell_clean.split()
+                                        # Разбиваем только если части выглядят как числа
+                                        if all(p.isdigit() for p in parts):
+                                            new_row.extend(parts)
+                                            continue
+                                    new_row.append(cell_clean)
+                                elif cell:
+                                    new_row.append(str(cell))
+                                else:
+                                    new_row.append('')
+                            
+                            if new_row and any(new_row):
+                                processed_rows.append(new_row)
+                        
+                        if len(processed_rows) >= 2:
+                            found_tables = True
+                            sheet_count += 1
+                            ws = wb.create_sheet(title=f"Page_{page_num+1}_{sheet_count}")
+                            
+                            # Записываем только первые 100 строк для экономии памяти
+                            for i, row in enumerate(processed_rows[:100]):
+                                for j, val in enumerate(row[:20]):  # Ограничиваем колонки
+                                    if val:
+                                        ws.cell(row=i+1, column=j+1, value=val)
+                
+                # Метод 2: Если таблиц нет, пробуем просто текст (но экономно)
+                if not found_tables:
                     text = page.extract_text()
                     if text:
                         lines = text.split('\n')
-                        table_rows = [line.split() for line in lines if line.strip()]
-                        if len(table_rows) > 2:
+                        data_rows = []
+                        for line in lines[:100]:  # Ограничиваем строки
+                            if line.strip() and any(c.isdigit() for c in line):
+                                cells = line.split()
+                                if len(cells) >= 3:  # Минимум 3 колонки
+                                    data_rows.append(cells)
+                        
+                        if len(data_rows) >= 3:
                             sheet_count += 1
-                            ws = wb.create_sheet(title=f"Страница_{page_num}_текст")
-                            for row_idx, row in enumerate(table_rows):
-                                for col_idx, cell in enumerate(row):
-                                    if cell:
-                                        ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
-                            print(f"  Added sheet from text with {len(table_rows)} rows")
-                    continue
+                            ws = wb.create_sheet(title=f"Page_{page_num+1}_text")
+                            for i, row in enumerate(data_rows[:50]):
+                                for j, val in enumerate(row[:15]):
+                                    if val:
+                                        ws.cell(row=i+1, column=j+1, value=val)
                 
-                # Группировка по строкам (используем 'top' вместо 'y0')
-                rows = {}
-                threshold = 5  # Увеличил порог для лучшей группировки
+                # Принудительно очищаем память после каждой страницы
+                del page
                 
-                for w in words:
-                    # В pdfplumber координаты: 'top', 'bottom', 'x0', 'x1'
-                    y_pos = w.get('top') or w.get('y0') or w.get('y')
-                    if y_pos is None:
-                        print(f"  Warning: word has no position data: {w}")
-                        continue
-                    
-                    y0 = round(y_pos / threshold) * threshold
-                    if y0 not in rows:
-                        rows[y0] = []
-                    rows[y0].append(w)
-                
-                print(f"Rows grouped: {len(rows)}")
-                
-                # Формирование таблицы
-                table_rows = []
-                for y in sorted(rows.keys()):
-                    row_words = sorted(rows[y], key=lambda x: x.get('x0', x.get('x', 0)))
-                    row_text = [w.get('text', '') for w in row_words]
-                    
-                    # Разбиваем склеенные числа
-                    expanded_row = []
-                    for cell in row_text:
-                        if cell and re.search(r'\d+\s+\d+', cell):
-                            numbers = re.findall(r'\d+', cell)
-                            expanded_row.extend(numbers)
-                            print(f"  Split cell: '{cell}' -> {numbers}")
-                        else:
-                            expanded_row.append(cell if cell else '')
-                    
-                    if expanded_row:  # Добавляем только непустые строки
-                        table_rows.append(expanded_row)
-                
-                print(f"Table rows formed: {len(table_rows)}")
-                
-                if len(table_rows) > 1:  # Уменьшил порог с 2 до 1
-                    sheet_count += 1
-                    ws = wb.create_sheet(title=f"Страница_{page_num}")
-                    for row_idx, row in enumerate(table_rows):
-                        for col_idx, cell in enumerate(row):
-                            if cell:
-                                ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
-                    print(f"  Added sheet with {len(table_rows)} rows")
-        
-        print(f"\nTotal sheets created: {sheet_count}")
-        
-        if sheet_count == 0:
-            print("No tables found, falling back to standard method")
-            return extract_tables_to_excel(pdf_path, output_excel)
-        
-        print(f"Saving Excel to {output_excel}")
-        wb.save(output_excel)
-        print("=== PRO FUNCTION END ===\n")
-        return sheet_count
+            # Очищаем память от PDF
+            pdf.close()
     
     except Exception as e:
-        print(f"PRO FUNCTION ERROR: {e}")
+        print(f"PRO ERROR: {e}")
         import traceback
         traceback.print_exc()
+        return extract_tables_to_excel(pdf_path, output_excel)
+    
+    if sheet_count == 0:
+        print("No tables found, falling back to standard method")
+        return extract_tables_to_excel(pdf_path, output_excel)
+    
+    try:
+        wb.save(output_excel)
+    except Exception as e:
+        print(f"Save error: {e}")
         return 0
+    
+    return sheet_count
 
 print("✅ handlers/start.py успешно загружен")
 print(f"✅ extract_tables_to_excel_pro определена: {extract_tables_to_excel_pro is not None}")
