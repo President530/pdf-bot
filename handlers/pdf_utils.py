@@ -3,67 +3,71 @@ import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel(pdf_path, output_excel):
-    """Парсит текст по пробелам и создаёт таблицу"""
-    
-    import re
-    from openpyxl import Workbook
+    """Гибридный метод извлечения таблиц"""
     
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Таблицы"
+    if 'Sheet' in wb.sheetnames:
+        wb.remove(wb.active)
     
-    all_rows = []
-    current_row = []
+    table_count = 0
+    all_text = []
     
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, start=1):
             text = page.extract_text()
             if not text:
                 continue
             
-            lines = text.split('\n')
+            all_text.append(f"=== Страница {page_num} ===\n{text}")
             
-            for line in lines:
-                # Разбиваем строку по 2+ пробелам
-                cells = re.split(r'\s{2,}', line)
-                cells = [c.strip() for c in cells if c.strip()]
+            # Метод 1: стандартные таблицы pdfplumber
+            tables = page.extract_tables()
+            for table in tables:
+                if table and len(table) > 1:
+                    cleaned = []
+                    for row in table:
+                        if row and any(str(c).strip() for c in row if c):
+                            cleaned.append([str(c).strip() if c else '' for c in row])
+                    if len(cleaned) >= 2:
+                        table_count += 1
+                        ws = wb.create_sheet(title=f"Table_{table_count}")
+                        for r_idx, row in enumerate(cleaned):
+                            for c_idx, cell in enumerate(row):
+                                if cell:
+                                    ws.cell(row=r_idx+1, column=c_idx+1, value=cell)
+            
+            # Метод 2: строки с буквами и цифрами
+            if table_count == 0:
+                lines = text.split('\n')
+                data_rows = []
                 
-                if len(cells) >= 2:  # Строка похожа на таблицу
-                    # Если строка с числами и текстом — это данные
-                    if any(cell.isdigit() or re.search(r'\d+', cell) for cell in cells):
-                        all_rows.append(cells)
-                    else:
-                        # Это заголовок
-                        if not all_rows:
-                            all_rows.append(cells)
-                        else:
-                            all_rows.append(cells)
-                elif len(cells) == 1 and cells[0] and not any(char.isdigit() for char in cells[0]):
-                    # Возможно заголовок
-                    pass
+                for line in lines:
+                    has_cyrillic = re.search(r'[А-Яа-я]', line)
+                    has_digits = re.search(r'\d', line)
+                    
+                    if has_cyrillic and has_digits:
+                        cells = line.split()
+                        if len(cells) >= 2:
+                            data_rows.append(cells)
+                
+                if data_rows:
+                    table_count = 1
+                    ws = wb.create_sheet(title="Данные")
+                    for r_idx, row in enumerate(data_rows):
+                        for c_idx, cell in enumerate(row):
+                            ws.cell(row=r_idx+1, column=c_idx+1, value=cell)
     
-    if not all_rows:
-        # Если ничего не нашли — сохраняем как есть
-        full_text = ''
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                full_text += page.extract_text() or ''
-        
-        lines = full_text.split('\n')
-        for i, line in enumerate(lines[:200]):
-            ws.cell(row=i+1, column=1, value=line[:32767])
-    else:
-        # Сохраняем найденные строки
-        for row_idx, row in enumerate(all_rows):
-            for col_idx, cell in enumerate(row):
-                if cell:
-                    ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
+    if table_count == 0:
+        ws = wb.create_sheet(title="Текст PDF")
+        full_text = '\n'.join(all_text)
+        for i, line in enumerate(full_text.split('\n')[:500]):
+            if line.strip():
+                ws.cell(row=i+1, column=1, value=line[:32767])
     
     wb.save(output_excel)
-    return len(all_rows) if all_rows else 0
+    return table_count if table_count > 0 else 0
 
 def find_explications_smart(pdf_path):
-    """Поиск экспликаций по структуре таблицы"""
     explications = []
     
     with pdfplumber.open(pdf_path) as pdf:
