@@ -18,7 +18,6 @@ def start_command(chat_id, send_message, get_keyboard):
     )
 
 def handle_document(chat_id, doc, send_message):
-    """Сохраняет PDF и сообщает пользователю"""
     import requests
     import tempfile
     from app import URL, TOKEN
@@ -77,7 +76,7 @@ def handle_text(chat_id, text, send_message, send_document):
             send_message(chat_id, msg[:4000])
     
     elif text == '🚀 Excel (PRO)':
-        send_message(chat_id, "⏳ PRO-обработка...")
+        send_message(chat_id, "⏳ *PRO-обработка...*")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
         count = extract_tables_to_excel_pro(pdf_path, output_excel)
         
