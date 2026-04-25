@@ -41,7 +41,7 @@ def webhook():
                 return 'OK', 200
             send_message(chat_id, "Извлекаю таблицы...")
             output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-            count = processor.extract_tables_via_api(pdf_path, output_excel)
+            count = processor.extract_tables_to_excel(pdf_path, output_excel)
             if count == 0:
                 send_message(chat_id, "Таблицы не найдены")
             else:
