@@ -3,6 +3,8 @@ import traceback
 import os
 import tempfile
 
+print("🔧 DEBUG: handlers/start.py loading...")
+
 # Хранилище PDF для каждого пользователя (временно)
 user_pdfs = {}
 
