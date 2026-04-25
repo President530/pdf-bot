@@ -4,6 +4,7 @@ import re
 from openpyxl import Workbook
 import os
 import tempfile
+import gc
 
 # Хранилище PDF для каждого пользователя
 user_pdfs = {}
@@ -41,8 +42,6 @@ def handle_document(chat_id, doc, send_message):
     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
     
     file_data = requests.get(file_url)
-    
-    # Проверяем размер перед сохранением
     file_size_mb = len(file_data.content) / (1024 * 1024)
     
     temp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
@@ -97,18 +96,16 @@ def handle_text(chat_id, text, send_message, send_document):
             send_message(chat_id, msg[:4000])
     
     elif text == '🚀 Excel (PRO)':
-        # Проверка размера файла
         if file_size_mb > 5:
-            send_message(chat_id, f"❌ Файл {file_size_mb:.1f} МБ слишком большой для PRO-режима.\n\nИспользуйте стандартный режим 'Таблицы в Excel' или уменьшите PDF.")
+            send_message(chat_id, f"❌ Файл {file_size_mb:.1f} МБ слишком большой для PRO-режима.\n\nИспользуйте стандартный режим 'Таблицы в Excel'.")
             return
         
         if file_size_mb > 2:
             send_message(chat_id, f"⚠️ Файл {file_size_mb:.1f} МБ. Обработка может занять 1-2 минуты...")
         
-        send_message(chat_id, "⏳ PRO-обработка (постранично, экономно)...")
+        send_message(chat_id, "⏳ PRO-обработка...")
         output_excel = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
         
-        # Вызываем экономичную PRO-функцию
         count = extract_tables_to_excel_pro_economic(pdf_path, output_excel, send_message, chat_id)
         
         if count == 0:
@@ -122,47 +119,36 @@ def get_keyboard():
     from keyboards.menu import main_menu_keyboard
     return main_menu_keyboard()
 
-# ========== ЭКОНОМИЧНАЯ PRO-ФУНКЦИЯ (для больших файлов) ==========
 def extract_tables_to_excel_pro_economic(pdf_path, output_excel, send_message=None, chat_id=None):
-    """Постраничная обработка с экономией памяти"""
-    
+    """Экономичная PRO версия для больших файлов"""
     wb = Workbook()
     wb.remove(wb.active)
     sheet_count = 0
     
     try:
-        # Открываем PDF
         with pdfplumber.open(pdf_path) as pdf:
-            total_pages = len(pdf.pages)
+            total_pages = min(len(pdf.pages), 30)
             
-            if send_message and chat_id:
-                send_message(chat_id, f"📄 Всего страниц: {total_pages}")
-            
-            # Обрабатываем каждую страницу отдельно
             for page_num in range(total_pages):
-                if send_message and chat_id and page_num % 3 == 0:
-                    send_message(chat_id, f"📄 Обработка страницы {page_num+1}/{total_pages}...")
+                if send_message and chat_id and page_num % 5 == 0 and page_num > 0:
+                    send_message(chat_id, f"📄 Обработано {page_num}/{total_pages} страниц...")
                 
                 page = pdf.pages[page_num]
-                
-                # Только extract_tables (самый экономный)
                 tables = page.extract_tables()
                 
                 for table_idx, table in enumerate(tables):
                     if not table or len(table) < 2:
                         continue
                     
-                    # Обрабатываем строки таблицы
                     processed_rows = []
-                    for row in table:
+                    for row in table[:100]:
                         if not row or not any(cell for cell in row):
                             continue
                         
                         new_row = []
-                        for cell in row:
+                        for cell in row[:15]:
                             if cell and isinstance(cell, str):
                                 cell_clean = cell.strip()
-                                # Разбиваем числа
                                 if re.match(r'^[\d\s]+$', cell_clean) and ' ' in cell_clean:
                                     parts = cell_clean.split()
                                     new_row.extend(parts)
@@ -178,33 +164,24 @@ def extract_tables_to_excel_pro_economic(pdf_path, output_excel, send_message=No
                     
                     if len(processed_rows) >= 2:
                         sheet_count += 1
-                        ws = wb.create_sheet(title=f"Page_{page_num+1}_{table_idx+1}")
-                        
-                        # Записываем строки (ограничиваем для памяти)
-                        for i, row in enumerate(processed_rows[:100]):
-                            for j, val in enumerate(row[:15]):
+                        ws = wb.create_sheet(title=f"P{page_num+1}_T{table_idx+1}")
+                        for i, row in enumerate(processed_rows):
+                            for j, val in enumerate(row):
                                 if val:
                                     try:
                                         ws.cell(row=i+1, column=j+1, value=val)
                                     except:
                                         pass
                 
-                # Очищаем страницу из памяти
                 del page
-                
-                # Каждые 3 страницы напоминаем GC
-                if page_num % 3 == 0:
-                    import gc
+                if page_num % 5 == 0:
                     gc.collect()
-            
-            pdf.close()
     
     except Exception as e:
-        print(f"PRO ECONOMIC ERROR: {e}")
+        print(f"PRO error: {e}")
         return 0
     
     if sheet_count == 0:
-        # Пробуем стандартный метод
         return extract_tables_to_excel(pdf_path, output_excel)
     
     try:
