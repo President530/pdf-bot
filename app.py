@@ -78,10 +78,11 @@ def webhook():
             print("➡️ Calling handle_text (explication)")
             handle_text(chat_id, text, send_message, send_document)
         
-        elif text == '🚀 Excel (PRO)':
+       elif text == '🚀 Excel (PRO)':
             print("➡️ Calling handle_text (PRO mode)")
-            # Отправляем немедленный ответ для проверки
+            # Быстрый ответ, чтобы пользователь не ждал
             send_message(chat_id, "✅ Кнопка PRO нажата! Начинаю обработку...")
+            # Запускаем обработку (она сама отправит сообщения о ходе работы)
             handle_text(chat_id, text, send_message, send_document)
         
         elif text == '📰 Новости':
