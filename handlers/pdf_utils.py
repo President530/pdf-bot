@@ -19,6 +19,7 @@ def extract_tables_to_excel(pdf_path, output_excel):
                 if not table or len(table) < 2:
                     continue
                 
+                # Очищаем от пустых строк
                 cleaned_rows = []
                 for row in table:
                     if row and any(str(cell).strip() for cell in row if cell):
@@ -32,35 +33,30 @@ def extract_tables_to_excel(pdf_path, output_excel):
                     for row_idx, row in enumerate(cleaned_rows):
                         for col_idx, cell in enumerate(row):
                             if cell:
-                                try:
-                                    ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
-                                except:
-                                    ws.cell(row=row_idx+1, column=col_idx+1, value=str(cell)[:32767])
+                                ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
     
     if table_count > 0:
         wb.save(output_excel)
     else:
+        # Если таблиц нет — сохраняем весь текст
         full_text = ''
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text()
                 if text:
-                    full_text += f"\n--- Страница {page.page_number} ---\n{text}\n"
+                    full_text += text + "\n"
         
-        ws = wb.create_sheet(title='Raw Text')
+        ws = wb.create_sheet(title='Текст из PDF')
         lines = full_text.split('\n')
         for i, line in enumerate(lines):
             if line.strip():
-                try:
-                    ws.cell(row=i+1, column=1, value=line[:32767])
-                except:
-                    pass
+                ws.cell(row=i+1, column=1, value=line[:32767])
         wb.save(output_excel)
     
     return table_count
 
 def find_explications_smart(pdf_path):
-    """Умный поиск экспликаций по структуре таблицы"""
+    """Поиск экспликаций по структуре таблицы"""
     explications = []
     
     with pdfplumber.open(pdf_path) as pdf:
@@ -85,10 +81,8 @@ def find_explications_smart(pdf_path):
                         
                         if re.search(r'^\d+[\.\)]?\s*$|^\d+$', cell_str):
                             has_numbers = True
-                        
                         if re.search(r'[А-Я][а-я]+', cell_str) and len(cell_str) > 2:
                             has_names = True
-                        
                         if re.search(r'\d+[\.,]\d+\s*м?²?|\d+\s*м²', cell_str):
                             has_areas = True
                 
