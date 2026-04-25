@@ -3,57 +3,36 @@ import re
 from openpyxl import Workbook
 
 def extract_tables_to_excel(pdf_path, output_excel):
-    """Извлекает таблицы из PDF в Excel"""
+    """Диагностика — покажет что видит бот"""
     
-    wb = Workbook()
-    if 'Sheet' in wb.sheetnames:
-        wb.remove(wb.active)
-    
-    table_count = 0
-    
+    # Просто сохраняем весь текст
+    full_text = ''
     with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            tables = page.extract_tables()
-            
-            for table_idx, table in enumerate(tables):
-                if not table or len(table) < 2:
-                    continue
-                
-                # Очищаем от пустых строк
-                cleaned_rows = []
-                for row in table:
-                    if row and any(str(cell).strip() for cell in row if cell):
-                        cleaned_rows.append([str(cell).strip() if cell else '' for cell in row])
-                
-                if len(cleaned_rows) >= 2:
-                    table_count += 1
-                    sheet_name = f"Page{page_num}_T{table_idx+1}"[:31]
-                    ws = wb.create_sheet(title=sheet_name)
-                    
-                    for row_idx, row in enumerate(cleaned_rows):
-                        for col_idx, cell in enumerate(row):
-                            if cell:
-                                ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                full_text += f"\n=== Страница {page.page_number} ===\n"
+                full_text += text + "\n"
     
-    if table_count > 0:
-        wb.save(output_excel)
-    else:
-        # Если таблиц нет — сохраняем весь текст
-        full_text = ''
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    full_text += text + "\n"
-        
-        ws = wb.create_sheet(title='Текст из PDF')
-        lines = full_text.split('\n')
-        for i, line in enumerate(lines):
-            if line.strip():
-                ws.cell(row=i+1, column=1, value=line[:32767])
-        wb.save(output_excel)
+    # Сохраняем в Excel как текст
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Текст из PDF"
     
-    return table_count
+    lines = full_text.split('\n')
+    for i, line in enumerate(lines[:200]):  # Первые 200 строк
+        if line.strip():
+            ws.cell(row=i+1, column=1, value=line[:32767])
+    
+    wb.save(output_excel)
+    
+    # Отправляем в лог первые 500 символов
+    print("=== ПЕРВЫЕ 500 СИМВОЛОВ PDF ===")
+    print(full_text[:500])
+    print("================================")
+    
+    return 0  # Говорим что таблиц не найдено, но текст сохранили
 
 def find_explications_smart(pdf_path):
     """Поиск экспликаций по структуре таблицы"""
