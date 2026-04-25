@@ -2,6 +2,68 @@ import pdfplumber
 import re
 from openpyxl import Workbook
 
+def extract_tables_to_excel_pro(pdf_path, output_excel):
+    """PRO версия — как у ilovepdf"""
+    
+    import pdfplumber
+    import re
+    from openpyxl import Workbook
+    
+    wb = Workbook()
+    wb.remove(wb.active)  # Удаляем дефолтный лист
+    
+    sheet_count = 0
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            words = page.extract_words(keep_blank_chars=False)
+            
+            if not words:
+                continue
+            
+            # Группируем по строкам (по Y координате)
+            rows = {}
+            threshold = 3  # Порог группировки в пунктах
+            
+            for w in words:
+                y0 = round(w['y0'] / threshold) * threshold
+                if y0 not in rows:
+                    rows[y0] = []
+                rows[y0].append(w)
+            
+            # Сортируем колонки в каждой строке по X
+            table_rows = []
+            for y in sorted(rows.keys()):
+                row_words = sorted(rows[y], key=lambda x: x['x0'])
+                row_text = [w['text'] for w in row_words]
+                
+                # Разбиваем склеенные числа
+                expanded_row = []
+                for cell in row_text:
+                    if re.search(r'\d+\s+\d+', cell):
+                        numbers = re.findall(r'\d+', cell)
+                        expanded_row.extend(numbers)
+                    else:
+                        expanded_row.append(cell)
+                
+                table_rows.append(expanded_row)
+            
+            if len(table_rows) > 2:
+                sheet_count += 1
+                ws = wb.create_sheet(title=f"Страница_{page_num}")
+                
+                for row_idx, row in enumerate(table_rows):
+                    for col_idx, cell in enumerate(row):
+                        if cell:
+                            ws.cell(row=row_idx+1, column=col_idx+1, value=cell)
+    
+    if sheet_count == 0:
+        # Fallback к обычному методу
+        return extract_tables_to_excel(pdf_path, output_excel)
+    
+    wb.save(output_excel)
+    return sheet_count
+
 def extract_tables_to_excel(pdf_path, output_excel):
     """Гибридный метод извлечения таблиц"""
     
